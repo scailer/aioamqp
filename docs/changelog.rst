@@ -9,6 +9,7 @@ Aioamqp next
  * Properly handle unlimited sized payloads (closes #103).
  * API fixes in the documentation (closes #102, #110).
  * Add frame properties to returned value from ``basic_get()`` (closes #100).
+ * Fix server cancel handling (closes #95).
 
 Aioamqp 0.8.0
 -------------
