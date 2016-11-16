@@ -31,6 +31,7 @@ class Channel:
         self.last_consumer_tag = None
         self.publisher_confirms = False
         self.delivery_tag_iter = None  # used for mapping delivered messages to publisher confirms
+        self._consumers = []
 
         self._futures = {}
         self._ctag_events = {}
@@ -53,7 +54,15 @@ class Channel:
     def is_open(self):
         return not self.close_event.is_set()
 
+    @asyncio.coroutine
+    def reconsume(self):
+        for args in self._consumers:
+            channel = yield from self.protocol.channel()
+            yield from channel.basic_consume(*args)
+
     def connection_closed(self, server_code=None, server_reason=None, exception=None):
+        asyncio.ensure_future(self.reconsume())
+
         for future in self._futures.values():
             if future.done():
                 continue
@@ -574,7 +583,7 @@ class Channel:
 
     @asyncio.coroutine
     def basic_consume(self, callback, queue_name='', consumer_tag='', no_local=False, no_ack=False,
-                      exclusive=False, no_wait=False, arguments=None, timeout=None):
+                      exclusive=False, no_wait=False, arguments=None, timeout=None, reconsume=False):
         """Starts the consumption of message into a queue.
         the callback will be called each time we're receiving a message.
 
@@ -594,6 +603,11 @@ class Channel:
         """
         # If a consumer tag was not passed, create one
         consumer_tag = consumer_tag or 'ctag%i.%s' % (self.channel_id, uuid.uuid4().hex)
+        if reconsume:
+            self._consumers.append((
+                callback, queue_name, consumer_tag, no_local, no_ack,
+                exclusive, no_wait, arguments, timeout, reconsume
+            ))
 
         if arguments is None:
             arguments = {}
