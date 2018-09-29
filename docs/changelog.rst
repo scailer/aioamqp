@@ -1,6 +1,33 @@
 Changelog
 =========
 
+Next release
+------------
+
+Aioamqp 0.11.0
+--------------
+
+ * Fix publish str payloads. Support will be removed in next major release.
+ * Support for ``basic_return`` (closes #158).
+ * Support for missings encoding and decoding types (closes #156).
+
+
+Aioamqp 0.10.0
+--------------
+
+ * Remove ``timeout`` argument from all channel methods.
+ * Clean up uses of ``no_wait`` argument from most channel methods.
+ * Call ``drain()`` after sending every frame (or group of frames).
+ * Make sure AmqpProtocol behaves identically on 3.4 and 3.5+ wrt EOF reception.
+
+Aioamqp 0.9.0
+-------------
+
+ * Fix server cancel handling (closes #95).
+ * Send "close ok" method on server-initiated close.
+ * Validate internal state before trying to send messages.
+ * Clarify which BSD license we actually use (3-clause).
+
 Aioamqp 0.8.2
 -------------
 

@@ -43,6 +43,7 @@ import io
 import struct
 import socket
 import os
+import datetime
 from itertools import count
 from decimal import Decimal
 
@@ -56,13 +57,13 @@ DUMP_FRAMES = False
 
 class AmqpEncoder:
 
-    def __init__(self, writer=None):
+    def __init__(self):
         self.payload = io.BytesIO()
 
     def write_table(self, data_dict):
 
         self.write_long(0)                  # the table length (set later)
-        if data_dict is not None and len(data_dict):
+        if data_dict:
             start = self.payload.tell()
             for key, value in data_dict.items():
                 self.write_shortstr(key)
@@ -71,6 +72,14 @@ class AmqpEncoder:
             self.payload.seek(start - 4)    # move before the long
             self.write_long(table_length)   # and set the table length
             self.payload.seek(0, os.SEEK_END)  # return at the end
+
+    def write_array(self, value):
+        array_data = AmqpEncoder()
+        for item in value:
+            array_data.write_value(item)
+        array_data = array_data.payload.getvalue()
+        self.write_long(len(array_data))
+        self.payload.write(array_data)
 
     def write_value(self, value):
         if isinstance(value, (bytes, str)):
@@ -85,6 +94,20 @@ class AmqpEncoder:
         elif isinstance(value, int):
             self.payload.write(b'I')
             self.write_long(value)
+        elif isinstance(value, float):
+            self.payload.write(b'd')
+            self.write_float(value)
+        elif isinstance(value, (list, tuple)):
+            self.payload.write(b'A')
+            self.write_array(value)
+        elif isinstance(value, Decimal):
+            self.payload.write(b'D')
+            self.write_decimal(value)
+        elif isinstance(value, datetime.datetime):
+            self.payload.write(b'T')
+            self.write_timestamp(value)
+        elif value is None:
+            self.payload.write(b'V')
         else:
             raise Exception("type({}) unsupported".format(type(value)))
 
@@ -113,6 +136,23 @@ class AmqpEncoder:
 
     def write_long_long(self, longlong):
         self.payload.write(struct.pack('!Q', longlong))
+
+    def write_float(self, value):
+        self.payload.write(struct.pack('>d', value))
+
+    def write_decimal(self, value):
+        sign, digits, exponent = value.as_tuple()
+        v = 0
+        for d in digits:
+            v = (v * 10) + d
+        if sign:
+            v = -v
+        self.write_octet(-exponent)
+        self.payload.write(struct.pack('>i', v))
+
+    def write_timestamp(self, value):
+        """Write out a Python datetime.datetime object as a 64-bit integer representing seconds since the Unix epoch."""
+        self.payload.write(struct.pack('>Q', int(value.replace(tzinfo=datetime.timezone.utc).timestamp())))
 
     def _write_string(self, string):
         if isinstance(string, str):
@@ -270,8 +310,7 @@ class AmqpDecoder:
         return data.decode()
 
     def read_timestamp(self):
-        # TODO: decode into datetime?
-        return self.read_long_long()
+        return datetime.datetime.fromtimestamp(self.read_long_long(), datetime.timezone.utc)
 
     def read_table(self):
         """Reads an AMQP table"""
@@ -336,7 +375,6 @@ class AmqpRequest:
         self.class_id = None
         self.weight = None
         self.method_id = None
-        self.payload = None
         self.next_body_size = None
 
     def declare_class(self, class_id, weight=0):
@@ -350,10 +388,8 @@ class AmqpRequest:
         self.class_id = class_id
         self.method_id = method_id
 
-    def write_frame(self, encoder=None):
-        payload = None
-        if encoder is not None:
-            payload = encoder.payload
+    def write_frame(self, encoder):
+        payload = encoder.payload
         content_header = ''
         transmission = io.BytesIO()
         if self.frame_type == amqp_constants.TYPE_METHOD:
@@ -373,8 +409,7 @@ class AmqpRequest:
         transmission.write(header)
         if content_header:
             transmission.write(content_header)
-        if payload:
-            transmission.write(payload.getvalue())
+        transmission.write(payload.getvalue())
         transmission.write(amqp_constants.FRAME_END)
         return self.writer.write(transmission.getvalue())
 
@@ -408,6 +443,8 @@ class AmqpResponse:
     @asyncio.coroutine
     def read_frame(self):
         """Decode the frame"""
+        if not self.reader:
+            raise exceptions.AmqpClosedConnection()
         try:
             data = yield from self.reader.readexactly(7)
         except (asyncio.IncompleteReadError, socket.error) as ex:

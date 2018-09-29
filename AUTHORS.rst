@@ -15,3 +15,8 @@ AUTHORS are (and/or have been)::
     * Igor `mastak`
     * Hans Lellelid
     * `iceboy-sjtu`
+    * Sergio Medina Toledo
+    * Alexander Gromyko
+    * Nick Humrich
+    * Pavel Kamaev
+
